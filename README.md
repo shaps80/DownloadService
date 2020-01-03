@@ -1,3 +1,3 @@
 # DownloadService
 
-A description of this package.
+A Swift service for handling downloads and their associated resources.

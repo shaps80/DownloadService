@@ -1,7 +1,7 @@
 import Foundation
 
 /// A `Download` provides a container with multiple associated `Resource`'s as its children.
-open class Download: Codable, Equatable, CustomDebugStringConvertible {
+public final class Download: Codable, Equatable, CustomDebugStringConvertible {
 
     public typealias ChangeHandler = (Download) -> Void
 
@@ -81,16 +81,20 @@ open class Download: Codable, Equatable, CustomDebugStringConvertible {
         self.resources = resources
     }
 
-    open var containerUrl: URL {
+    public var containerUrl: URL {
         // swiftlint:disable force_try
         return try! FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
             .appendingPathComponent(name ?? clientIdentifier)
     }
 
-    open func suggestedUrl(for resource: Resource) -> URL {
-        return containerUrl
-            .appendingPathComponent(resource.clientIdentifier)
-            .appendingPathExtension(resource.remoteUrl.pathExtension)
+    public func suggestedUrl(for resource: Resource) -> URL {
+        if let filename = resource.preferredFilename {
+            return containerUrl.appendingPathComponent(filename)
+        } else {
+            return containerUrl
+                .appendingPathComponent(resource.clientIdentifier)
+                .appendingPathExtension("download")
+        }
     }
 
     /// Returns an `Observation` that can be used to observe updates on this `Download`.

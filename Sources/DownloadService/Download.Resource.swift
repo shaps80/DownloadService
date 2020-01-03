@@ -11,9 +11,13 @@ public extension Download {
         /// An identifier used by the client to identify this with its associated content
         public let clientIdentifier: String
 
-        public init(clientIdentifier: String, remoteUrl: URL) {
+        /// The preferred filename for this resource
+        public let preferredFilename: String?
+
+        public init(clientIdentifier: String, remoteUrl: URL, preferredFilename: String?) {
             self.clientIdentifier = clientIdentifier
             self.remoteUrl = remoteUrl
+            self.preferredFilename = preferredFilename
         }
 
         public var description: String {
@@ -24,6 +28,7 @@ public extension Download {
             let attributes = [
                 "Client Id": clientIdentifier,
                 "Remote URL": remoteUrl.absoluteString,
+                "Filename": preferredFilename,
             ].compactMapValues { $0 }
             return attributes.values.joined(separator: " | ")
         }

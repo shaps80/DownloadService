@@ -17,7 +17,7 @@ public enum DownloadError: Error {
 /// and delegate based feedback to allow user interfaces to respond to events.
 public final class DownloadService: NSObject {
 
-    public var isLoggingVerbose: Bool = false
+    public var isLoggingVerbose: Bool = true
 
     private static var category = "download-service"
     private static var subsystem: String {
@@ -43,6 +43,7 @@ public final class DownloadService: NSObject {
     }()
 
     private lazy var session: URLSession = {
+        guard _resumed else { fatalError("You MUST call resume before performing any actions on this service.") }
         return URLSession(configuration: configuration, delegate: self, delegateQueue: delegateQueue)
     }()
 
@@ -72,9 +73,9 @@ public final class DownloadService: NSObject {
             do {
                 let data = try encoder.encode(self.downloads)
                 try data.write(to: url)
-                os_log("Updated active downloads to: %{public}s", log: log, type: .debug, url.path)
+                os_log("Updated downloads to: %{public}s", log: log, type: .debug, url.path)
             } catch {
-                os_log("Failed to update active downloads to: %{public}s, %{public}s", log: log, type: .debug, url.path, "\(error)")
+                os_log("Failed to update downloads to: %{public}s, %{public}s", log: log, type: .debug, url.path, "\(error)")
             }
         }
     }
@@ -87,48 +88,44 @@ public final class DownloadService: NSObject {
 
         guard FileManager.default.fileExists(atPath: url.path) else { return }
 
-        downloadsQueue.sync { [unowned self] in
-            do {
-                let data = try Data(contentsOf: url)
-                self.downloads = try decoder.decode([Download].self, from: data)
-                if !self.downloads.isEmpty {
-                    os_log("%{public}i download(s) found, attempting to restore.", log: log, type: .debug, self.downloads.count)
-                }
-            } catch {
-                self.downloads = []
-                os_log("No downloads restored.", log: log, type: .debug)
+        do {
+            let data = try Data(contentsOf: url)
+            self.downloads = try decoder.decode([Download].self, from: data)
+        } catch {
+            self.downloads = []
+        }
+
+        guard !self.downloads.isEmpty else {
+            os_log("No downloads restored.", log: self.log, type: .debug)
+            return
+        }
+
+        os_log("%{public}i download(s) found, attempting to restore.", log: self.log, type: .debug, self.downloads.count)
+
+        self.session.getAllTasks { tasks in
+            guard !tasks.isEmpty else {
+                self.downloads.forEach { self.cancel(download: $0) }
+                self.downloads.removeAll()
+                self.commitActiveDownloads()
+                return
             }
 
-            guard !downloads.isEmpty else { return }
-
-            session.getAllTasks { tasks in
-                tasks.forEach { $0.suspend() }
-
-                guard !tasks.isEmpty else {
-                    self.downloads.forEach { self.cancel(download: $0) }
-                    self.downloads.removeAll()
-                    self.commitActiveDownloads()
-                    return
+            for task in tasks {
+                if let download = self.download(for: task) {
+                    download.tasks.append(task)
+                    os_log("Found matching download for task: %{public}s. Resuming...", log: self.log, type: .debug, url.absoluteString)
+                } else {
+                    task.cancel()
                 }
+            }
 
-                for task in tasks {
-                    if let download = self.download(for: task) {
-                        download.tasks.append(task)
-                        os_log("Found matching download for task: %{public}s. Resuming...", log: self.log, type: .debug, url.absoluteString)
-                    } else {
-                        task.cancel()
-                    }
-                }
+            self.downloads.filter { $0.tasks.isEmpty }.forEach {
+                os_log("No pending tasks for download: %{public}s. Assuming completed successfully.", log: self.log, type: .debug, $0.name ?? $0.clientIdentifier)
+                self.dequeue(download: $0)
+            }
 
-                self.downloads.filter { $0.tasks.isEmpty }.forEach {
-                    os_log("No pending tasks for download: %{public}s. Assuming completed successfully.", log: self.log, type: .debug, $0.name ?? $0.clientIdentifier)
-                    self.dequeue(download: $0)
-                }
-
-                self.downloads.forEach {
-                    $0.tasks.forEach { $0.resume() }
-                    DownloadService.Message.downloadWasRestored($0).post(for: self)
-                }
+            self.downloads.forEach {
+                DownloadService.Message.downloadWasRestored($0).post(for: self)
             }
         }
     }
@@ -167,7 +164,14 @@ public final class DownloadService: NSObject {
     }
 
     private func postCancel(for download: Download) {
-        Message.downloadDidFail(download, DownloadError.cancelled).post(for: self)
+        let message = Message.downloadDidFail(download, DownloadError.cancelled)
+        let resourceMessages = download.resources.map {
+            Message.resourceDidFail(download, $0, DownloadError.cancelled)
+        }
+
+        [resourceMessages, [message]]
+            .flatMap { $0 }
+            .forEach { $0.post(for: self) }
     }
 
     public func enqueue(download: Download) throws {
@@ -202,6 +206,11 @@ public final class DownloadService: NSObject {
         self.delegate = delegate
         self.delegateQueue = delegateQueue
         super.init()
+    }
+
+    private var _resumed: Bool = false
+    public func resume() {
+        _resumed = true
         restoreDownloads()
     }
     
@@ -226,11 +235,12 @@ extension DownloadService: URLSessionDownloadDelegate {
             let download = self.download(for: downloadTask),
             let resource = download.resource(for: url) else { return }
 
-        Message.resourceDidComplete(download, resource, location) {
+        Message.resourceDidComplete(download, resource).post(for: self)
+        self.delegate?.service(self, didComplete: resource, for: download, temporaryUrl: location, suggestedDestination: download.suggestedUrl(for: resource)) {
             guard download.tasks.allSatisfy({ $0.progress.isFinished }) else { return }
             Message.downloadDidComplete(download).post(for: self)
             self.dequeue(download: download)
-        }.post(for: self)
+        }
     }
     
     public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
@@ -270,7 +280,7 @@ private extension DownloadService {
 
         case resourceDidBegin(Download, Download.Resource)
         case resourceDidUpdate(Download, Download.Resource)
-        case resourceDidComplete(Download, Download.Resource, URL, () -> Void)
+        case resourceDidComplete(Download, Download.Resource)
         case resourceDidFail(Download, Download.Resource, Error)
 
         var notificationName: Notification.Name {
@@ -338,10 +348,10 @@ private extension DownloadService {
                 delegate = { service.delegate?.service(service, didUpdate: r, for: d, fractionCompleted: f) }
                 download = d
                 resource = r
-            case let .resourceDidComplete(d, r, t, c):
+            case let .resourceDidComplete(d, r):
                 logging = { os_log("Resource completed: %{public}s | %{public}s", log: log, type: .info,
                                    d.debugDescription, service.isLoggingVerbose ? r.debugDescription : r.description) }
-                delegate = { service.delegate?.service(service, didComplete: r, for: d, temporaryUrl: t, suggestedDestination: d.suggestedUrl(for: r), completionHandler: c) }
+                delegate = { /* we have to do the file copy in the outer method so we can't call the delegate here */ }
                 download = d
                 resource = r
             case let .resourceDidFail(d, r, e):
@@ -355,7 +365,10 @@ private extension DownloadService {
 
             download.setNeedsUpdate()
             logging()
-            delegate()
+
+            service.delegateQueue.addOperation {
+                delegate()
+            }
 
             let note = Notification(name: notificationName, object: download, userInfo: [
                 Download.resourceKey: resource as Any,

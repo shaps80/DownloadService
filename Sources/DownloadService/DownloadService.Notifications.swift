@@ -2,16 +2,41 @@ import Foundation
 
 public extension DownloadService {
 
-    static let downloadDidBegin = Notification.Name(rawValue: "DownloadService.DownloadDidBegin")
-    static let downloadWasRestore = Notification.Name(rawValue: "DownloadService.DownloadWasRestored")
-    static let downloadDidUpdate = Notification.Name(rawValue: "DownloadService.DownloadDidUpdate")
-    static let downloadDidComplete = Notification.Name(rawValue: "DownloadService.DownloadDidComplete")
-    static let downloadDidFail = Notification.Name(rawValue: "DownloadService.DownloadDidFail")
+    static var downloadDidBegin: Notification.Name {
+        Notification.Name(rawValue: "DownloadService.DownloadDidBegin")
+    }
 
-    static let resourceDidBegin = Notification.Name(rawValue: "DownloadService.ResourceDidBegin")
-    static let resourceDidUpdate = Notification.Name(rawValue: "DownloadService.ResourceDidUpdate")
-    static let resourceDidComplete = Notification.Name(rawValue: "DownloadService.ResourceDidComplete")
-    static let resourceDidFail = Notification.Name(rawValue: "DownloadService.ResourceDidFail")
+    static var downloadWasRestore: Notification.Name {
+        Notification.Name(rawValue: "DownloadService.DownloadWasRestored")
+    }
+
+    static var downloadDidUpdate: Notification.Name {
+        Notification.Name(rawValue: "DownloadService.DownloadDidUpdate")
+    }
+
+    static var downloadDidComplete: Notification.Name {
+        Notification.Name(rawValue: "DownloadService.DownloadDidComplete")
+    }
+
+    static var downloadDidFail: Notification.Name {
+        Notification.Name(rawValue: "DownloadService.DownloadDidFail")
+    }
+
+    static var resourceDidBegin: Notification.Name {
+        Notification.Name(rawValue: "DownloadService.ResourceDidBegin")
+    }
+
+    static var resourceDidUpdate: Notification.Name {
+        Notification.Name(rawValue: "DownloadService.ResourceDidUpdate")
+    }
+
+    static var resourceDidComplete: Notification.Name {
+        Notification.Name(rawValue: "DownloadService.ResourceDidComplete")
+    }
+
+    static var resourceDidFail: Notification.Name {
+        Notification.Name(rawValue: "DownloadService.ResourceDidFail")
+    }
 
 }
 

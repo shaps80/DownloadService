@@ -124,7 +124,7 @@ open class Download: Codable, Equatable, CustomDebugStringConvertible {
         let attributes = [
             "Client Id": clientIdentifier,
             "Name": name,
-            "Completed": "\(Int(fractionCompleted * 100))%"
+            "Completed": "\(Int(max(0, min(1, fractionCompleted)) * 100))%"
         ].compactMapValues { $0 }
         return attributes.values.joined(separator: " | ")
     }

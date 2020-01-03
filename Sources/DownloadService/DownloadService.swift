@@ -17,7 +17,8 @@ public enum DownloadError: Error {
 /// and delegate based feedback to allow user interfaces to respond to events.
 public final class DownloadService: NSObject {
 
-    private static var verbose: Bool = false
+    public var isLoggingVerbose: Bool = false
+
     private static var category = "download-service"
     private static var subsystem: String {
         return Bundle(for: self).bundleIdentifier
@@ -52,7 +53,7 @@ public final class DownloadService: NSObject {
 
     public private(set) lazy var downloads: [Download] = []
 
-    private lazy var activeDownloadsQueue: DispatchQueue = {
+    private lazy var downloadsQueue: DispatchQueue = {
         return DispatchQueue.global(qos: .background)
     }()
 
@@ -67,7 +68,7 @@ public final class DownloadService: NSObject {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .prettyPrinted
 
-        activeDownloadsQueue.sync { [unowned self] in
+        downloadsQueue.sync { [unowned self] in
             do {
                 let data = try encoder.encode(self.downloads)
                 try data.write(to: url)
@@ -78,7 +79,7 @@ public final class DownloadService: NSObject {
         }
     }
 
-    private func restoreActiveDownloads() {
+    private func restoreDownloads() {
         let url = downloadsCacheUrl
         let decoder = JSONDecoder()
 
@@ -86,7 +87,7 @@ public final class DownloadService: NSObject {
 
         guard FileManager.default.fileExists(atPath: url.path) else { return }
 
-        activeDownloadsQueue.sync { [unowned self] in
+        downloadsQueue.sync { [unowned self] in
             do {
                 let data = try Data(contentsOf: url)
                 self.downloads = try decoder.decode([Download].self, from: data)
@@ -104,6 +105,7 @@ public final class DownloadService: NSObject {
                 tasks.forEach { $0.suspend() }
 
                 guard !tasks.isEmpty else {
+                    self.downloads.forEach { self.cancel(download: $0) }
                     self.downloads.removeAll()
                     self.commitActiveDownloads()
                     return
@@ -143,17 +145,20 @@ public final class DownloadService: NSObject {
 
     public func suspend(download: Download) {
         download.tasks.forEach { $0.suspend() }
-
-        let message = Message.downloadDidUpdate(download)
-        let resourceMessages = download.resources.map { Message.resourceDidUpdate(download, $0) }
-        [resourceMessages, [message]]
-            .flatMap { $0 }
-            .forEach { $0.post(for: self) }
+        postUpdate(for: download)
     }
 
     public func resume(download: Download) {
         download.tasks.forEach { $0.resume() }
+        postUpdate(for: download)
+    }
 
+    public func cancel(download: Download) {
+        download.tasks.forEach { $0.cancel() }
+        postCancel(for: download)
+    }
+
+    private func postUpdate(for download: Download) {
         let message = Message.downloadDidUpdate(download)
         let resourceMessages = download.resources.map { Message.resourceDidUpdate(download, $0) }
         [resourceMessages, [message]]
@@ -161,8 +166,8 @@ public final class DownloadService: NSObject {
             .forEach { $0.post(for: self) }
     }
 
-    public func cancel(download: Download) {
-        download.tasks.forEach { $0.cancel() }
+    private func postCancel(for download: Download) {
+        Message.downloadDidFail(download, DownloadError.cancelled).post(for: self)
     }
 
     public func enqueue(download: Download) throws {
@@ -197,7 +202,7 @@ public final class DownloadService: NSObject {
         self.delegate = delegate
         self.delegateQueue = delegateQueue
         super.init()
-        restoreActiveDownloads()
+        restoreDownloads()
     }
     
 }
@@ -301,7 +306,10 @@ private extension DownloadService {
                 delegate = { service.delegate?.service(service, didRestore: d) }
                 download = d
             case let .downloadDidUpdate(d):
-                logging = { os_log("Download %{public}s: %{public}s", log: log, type: .info, d.state.rawValue, d.debugDescription) }
+                logging = {
+                    guard service.isLoggingVerbose else { return }
+                    os_log("Download %{public}s: %{public}s", log: log, type: .info, d.state.rawValue, d.debugDescription)
+                }
                 delegate = { service.delegate?.service(service, didUpdate: d, fractionCompleted: d.fractionCompleted, state: d.state) }
                 download = d
             case let .downloadDidComplete(d):
@@ -316,26 +324,29 @@ private extension DownloadService {
                 error = e
             case let .resourceDidBegin(d, r):
                 logging = { os_log("Resource began: %{public}s | %{public}s", log: log, type: .info,
-                                   d.debugDescription, DownloadService.verbose ? r.debugDescription : r.description) }
+                                   d.debugDescription, service.isLoggingVerbose ? r.debugDescription : r.description) }
                 delegate = { service.delegate?.service(service, didBegin: r, for: d) }
                 download = d
                 resource = r
             case let .resourceDidUpdate(d, r):
                 let f = d.fractionCompleted(for: r)
-                logging = { os_log("Resource %{public}s: %{public}s | %{public}s | %{public}i%", log: log, type: .info,
-                                   d.state.rawValue, d.debugDescription, DownloadService.verbose ? r.debugDescription : r.description, Int(f * 100)) }
+                logging = {
+                    guard service.isLoggingVerbose else { return }
+                    os_log("Resource %{public}s: %{public}s | %{public}s | %{public}i%", log: log, type: .info,
+                           d.state.rawValue, d.debugDescription, r.debugDescription, Int(f * 100))
+                }
                 delegate = { service.delegate?.service(service, didUpdate: r, for: d, fractionCompleted: f) }
                 download = d
                 resource = r
             case let .resourceDidComplete(d, r, t, c):
                 logging = { os_log("Resource completed: %{public}s | %{public}s", log: log, type: .info,
-                                   d.debugDescription, DownloadService.verbose ? r.debugDescription : r.description) }
+                                   d.debugDescription, service.isLoggingVerbose ? r.debugDescription : r.description) }
                 delegate = { service.delegate?.service(service, didComplete: r, for: d, temporaryUrl: t, suggestedDestination: d.suggestedUrl(for: r), completionHandler: c) }
                 download = d
                 resource = r
             case let .resourceDidFail(d, r, e):
                 logging = { os_log("Resource failed: %{public}s | %{public}s | %{public}s", log: log, type: .info,
-                                   d.debugDescription, DownloadService.verbose ? r.debugDescription : r.description, e.localizedDescription) }
+                                   d.debugDescription, service.isLoggingVerbose ? r.debugDescription : r.description, e.localizedDescription) }
                 delegate = { service.delegate?.service(service, didFail: r, for: d, error: e) }
                 download = d
                 resource = r

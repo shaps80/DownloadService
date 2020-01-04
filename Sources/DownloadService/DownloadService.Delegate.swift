@@ -78,7 +78,7 @@ public protocol DownloadServiceDelegate: class {
 // Optional methods have a default implementation here
 public extension DownloadServiceDelegate {
     func service(_ service: DownloadService, didBegin download: Download) { }
-    func service(_ service: DownloadService, didRestore downlaod: Download) { }
+    func service(_ service: DownloadService, didRestore download: Download) { }
     func service(_ service: DownloadService, didUpdate download: Download, fractionCompleted: Float, state: Download.State) { }
     func service(_ service: DownloadService, didBegin resource: Download.Resource, for download: Download) { }
     func service(_ service: DownloadService, didUpdate resource: Download.Resource, for download: Download, fractionCompleted: Float) { }

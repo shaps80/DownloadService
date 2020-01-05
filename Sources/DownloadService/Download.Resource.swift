@@ -12,12 +12,12 @@ public extension Download {
         public let clientIdentifier: String
 
         /// The preferred filename for this resource
-        public let preferredFilename: String?
+        public let localFilename: String
 
         public init(clientIdentifier: String, remoteUrl: URL, preferredFilename: String?) {
             self.clientIdentifier = clientIdentifier
             self.remoteUrl = remoteUrl
-            self.preferredFilename = preferredFilename
+            self.localFilename = preferredFilename?.replacingOccurrences(of: "/", with: "|") ?? "\(UUID().uuidString).resource"
         }
 
         public var description: String {
@@ -28,17 +28,17 @@ public extension Download {
             let attributes = [
                 "Client Id": clientIdentifier,
                 "Remote URL": remoteUrl.absoluteString,
-                "Filename": preferredFilename,
+                "Filename": localFilename,
             ].compactMapValues { $0 }
             return attributes.values.joined(separator: " | ")
         }
 
         public static func == (lhs: Resource, rhs: Resource) -> Bool {
-            return lhs.clientIdentifier == rhs.clientIdentifier
+            return lhs.remoteUrl == rhs.remoteUrl
         }
 
         public func hash(into hasher: inout Hasher) {
-            hasher.combine(clientIdentifier)
+            hasher.combine(remoteUrl)
         }
 
     }

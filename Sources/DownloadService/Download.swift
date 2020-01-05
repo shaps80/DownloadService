@@ -1,7 +1,7 @@
 import Foundation
 
 /// A `Download` provides a container with multiple associated `Resource`'s as its children.
-public final class Download: Codable, Equatable, CustomDebugStringConvertible {
+public final class Download: Codable, Hashable, CustomDebugStringConvertible {
 
     public typealias ChangeHandler = (Download) -> Void
 
@@ -26,8 +26,8 @@ public final class Download: Codable, Equatable, CustomDebugStringConvertible {
         case resources
     }
 
-    /// A private unique key which is used for equatability
-    private let id: String
+    /// A hashed representation of the clientIdentifier
+    private var id: String
 
     /// Represents any associated observers currently attached to this `Download`
     private var observers: [Observation: ChangeHandler] = [:]
@@ -74,8 +74,7 @@ public final class Download: Codable, Equatable, CustomDebugStringConvertible {
     ///   - clientIdentifier: An identifier used by the client to identify this with its associated content
     ///   - resources: All associated `Resource`'s for this `Download`
     public init(name: String?, clientIdentifier: String, resources: Set<Resource>) {
-        let id = UUID().uuidString
-        self.id = id
+        self.id = clientIdentifier.encrypted
         self.name = name
         self.clientIdentifier = clientIdentifier
         self.resources = resources
@@ -84,17 +83,11 @@ public final class Download: Codable, Equatable, CustomDebugStringConvertible {
     public var containerUrl: URL {
         // swiftlint:disable force_try
         return try! FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
-            .appendingPathComponent(name ?? clientIdentifier)
+            .appendingPathComponent(id, isDirectory: true)
     }
 
     public func suggestedUrl(for resource: Resource) -> URL {
-        if let filename = resource.preferredFilename {
-            return containerUrl.appendingPathComponent(filename)
-        } else {
-            return containerUrl
-                .appendingPathComponent(resource.clientIdentifier)
-                .appendingPathExtension("download")
-        }
+        return containerUrl.appendingPathComponent(resource.localFilename, isDirectory: false)
     }
 
     /// Returns an `Observation` that can be used to observe updates on this `Download`.
@@ -122,6 +115,10 @@ public final class Download: Codable, Equatable, CustomDebugStringConvertible {
 
     public static func == (lhs: Download, rhs: Download) -> Bool {
         return lhs.id == rhs.id
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
     }
 
     public var debugDescription: String {

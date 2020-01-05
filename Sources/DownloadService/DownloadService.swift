@@ -52,7 +52,7 @@ public final class DownloadService: NSObject {
     public weak var delegate: DownloadServiceDelegate?
     private let delegateQueue: OperationQueue
 
-    public private(set) lazy var downloads: [Download] = []
+    public private(set) lazy var downloads: Set<Download> = []
 
     private lazy var downloadsQueue: DispatchQueue = {
         return DispatchQueue.global(qos: .background)
@@ -90,7 +90,7 @@ public final class DownloadService: NSObject {
 
         do {
             let data = try Data(contentsOf: url)
-            self.downloads = try decoder.decode([Download].self, from: data)
+            self.downloads = try decoder.decode(Set<Download>.self, from: data)
         } catch {
             self.downloads = []
         }
@@ -183,7 +183,7 @@ public final class DownloadService: NSObject {
         download.tasks = tasks
 
         // 2. Add the download to the activeDownloads and commit the change
-        downloads.append(download)
+        downloads.insert(download)
         commitActiveDownloads()
 
         // 3. Resume the tasks and return the progress for this download

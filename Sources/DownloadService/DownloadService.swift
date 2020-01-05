@@ -17,7 +17,7 @@ public enum DownloadError: Error {
 /// and delegate based feedback to allow user interfaces to respond to events.
 public final class DownloadService: NSObject {
 
-    public var isLoggingVerbose: Bool = true
+    public var isLoggingVerbose: Bool = false
 
     private static var category = "download-service"
     private static var subsystem: String {
